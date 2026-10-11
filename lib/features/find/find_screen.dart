@@ -3,8 +3,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_widgets.dart';
-import '../../data/models/bite_guide.dart';
+import '../../data/models/bite_filters.dart';
 import '../../data/seed/seed_data.dart';
+import '../community/widgets/community_post_results.dart';
+import 'widgets/match_card.dart';
 
 class FindScreen extends StatefulWidget {
   const FindScreen({super.key});
@@ -15,16 +17,6 @@ class FindScreen extends StatefulWidget {
 
 class _FindScreenState extends State<FindScreen> {
   final Set<String> _selectedTags = <String>{};
-
-  static const _filters = <_FilterOption>[
-    _FilterOption('Red', 'red', Icons.circle_outlined),
-    _FilterOption('Itchy', 'itchy', Icons.touch_app_outlined),
-    _FilterOption('Raised', 'raised', Icons.landscape_outlined),
-    _FilterOption('Cluster', 'cluster', Icons.hub_outlined),
-    _FilterOption('In a line', 'line', Icons.linear_scale_rounded),
-    _FilterOption('Painful', 'painful', Icons.bolt_outlined),
-    _FilterOption('Attached tick', 'tick', Icons.location_on_outlined),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -77,11 +69,12 @@ class _FindScreenState extends State<FindScreen> {
                 Wrap(
                   spacing: 8,
                   runSpacing: 9,
-                  children: _filters.map((filter) {
-                    final selected = _selectedTags.contains(filter.value);
+                  children: BiteFilters.symptoms.map((filter) {
+                    final selected = _selectedTags.contains(filter.id);
                     return FilterChip(
+                      key: ValueKey('find-tag-${filter.id}'),
                       avatar: Icon(
-                        filter.icon,
+                        _filterIcon(filter.id),
                         size: 16,
                         color: selected ? Colors.white : AppColors.rose,
                       ),
@@ -89,9 +82,9 @@ class _FindScreenState extends State<FindScreen> {
                       label: Text(filter.label),
                       onSelected: (active) => setState(() {
                         if (active) {
-                          _selectedTags.add(filter.value);
+                          _selectedTags.add(filter.id);
                         } else {
-                          _selectedTags.remove(filter.value);
+                          _selectedTags.remove(filter.id);
                         }
                       }),
                     );
@@ -107,24 +100,39 @@ class _FindScreenState extends State<FindScreen> {
                 ? 'Browse visual guides'
                 : '${matches.length} possible guide${matches.length == 1 ? '' : 's'}',
           ),
-          if (matches.isEmpty)
+          if (matches.isEmpty) ...<Widget>[
             const EmptyPanel(
               icon: Icons.search_off_rounded,
               title: 'No close visual guide',
               message:
-                  'Try removing one filter, or ask a clinician if you are worried about the symptoms.',
-            )
-          else
+                  'There is no guide with all these observations. You can compare community experiences below, or remove a filter. Ask a clinician if symptoms concern you.',
+            ),
+            const SectionHeader(title: 'Matching community experiences'),
+            Text(
+              'Posts must include every filter you selected. These are personal reports, not confirmed identifications.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            CommunityPostResults(selectedTags: _selectedTags, previewLimit: 3),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              key: const ValueKey('view-matching-community'),
+              onPressed: () =>
+                  context.go(BiteFilters.communityLocation(_selectedTags)),
+              icon: const Icon(Icons.forum_outlined),
+              label: const Text('View matching community posts'),
+            ),
+          ] else
             ...matches.map(
               (guide) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: _MatchCard(guide: guide),
+                child: MatchCard(guide: guide),
               ),
             ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () => context.push('/add-bite'),
-            icon: const Icon(Icons.add_a_photo_outlined),
+            icon: const Icon(Icons.edit_note_rounded),
             label: const Text('Share your experience instead'),
           ),
         ],
@@ -133,77 +141,18 @@ class _FindScreenState extends State<FindScreen> {
   }
 }
 
-class _FilterOption {
-  const _FilterOption(this.label, this.value, this.icon);
-
-  final String label;
-  final String value;
-  final IconData icon;
-}
-
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({required this.guide});
-
-  final BiteGuide guide;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(22),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: () => context.push('/guide/${guide.id}'),
-      child: Ink(
-        height: 128,
-        decoration: BoxDecoration(
-          border: Border.all(color: AppColors.border),
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          children: <Widget>[
-            SizedBox(
-              width: 118,
-              height: double.infinity,
-              child: AssetCrop(
-                asset: AppAssets.commonBites,
-                alignment: visualAlignment(guide.visual),
-                borderRadius: const BorderRadius.horizontal(
-                  left: Radius.circular(21),
-                ),
-                semanticLabel: 'Visual example for ${guide.title}',
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    GuidePill(label: guide.category),
-                    const Spacer(),
-                    Text(
-                      guide.title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      guide.pattern,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const Spacer(),
-                  ],
-                ),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.only(right: 10),
-              child: Icon(Icons.chevron_right_rounded, color: AppColors.rose),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
+IconData _filterIcon(String id) => switch (id) {
+  'red' => Icons.circle_outlined,
+  'itchy' => Icons.touch_app_outlined,
+  'raised' => Icons.landscape_outlined,
+  'cluster' => Icons.hub_outlined,
+  'line' => Icons.linear_scale_rounded,
+  'painful' => Icons.bolt_outlined,
+  'swollen' => Icons.blur_circular_rounded,
+  'blister' => Icons.bubble_chart_outlined,
+  'scalp' => Icons.face_retouching_natural,
+  'lower-leg' => Icons.directions_walk_rounded,
+  'tick' => Icons.location_on_outlined,
+  'stinger' => Icons.gps_fixed_rounded,
+  _ => Icons.check_circle_outline,
+};

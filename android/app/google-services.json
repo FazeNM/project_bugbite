@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "430475450401",
+    "project_id": "bugbite-f09ca",
+    "storage_bucket": "bugbite-f09ca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:430475450401:android:d9293763d66f6c75516b60",
+        "android_client_info": {
+          "package_name": "com.bitewise.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "430475450401-r6t4qcjc31qtvq02jgqq2jcnhr4vad0o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bitewise.app",
+            "certificate_hash": "3c269bf73742bb7ffdb4c9dbcb057efea4820022"
+          }
+        },
+        {
+          "client_id": "430475450401-a8qna271r11j4ipsaf1eafdj7f1irbb7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4pFJy8WCVVXvyz8RkgzgOdayLciLn3PQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "430475450401-a8qna271r11j4ipsaf1eafdj7f1irbb7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

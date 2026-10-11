@@ -1,0 +1,44 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "bugbite-f09ca",
+          "appId": "1:430475450401:android:d9293763d66f6c75516b60",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "bugbite-f09ca",
+          "configurations": {
+            "android": "1:430475450401:android:d9293763d66f6c75516b60",
+            "web": "1:430475450401:web:3ba4fbaa78349119516b60"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "firestore": { "host": "127.0.0.1", "port": 8080 },
+    "storage": { "host": "127.0.0.1", "port": 9199 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "BiteWise",
+        "supportEmail": "handy4787@gmail.com"
+      }
+    }
+  }
+}

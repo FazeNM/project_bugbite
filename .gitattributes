@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.otf binary
+*.png binary
+*.ttf binary
+*.webp binary
+*.jar binary
+*.jks binary
+*.keystore binary

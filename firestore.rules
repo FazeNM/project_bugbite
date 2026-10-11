@@ -1,0 +1,245 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function moderator() {
+      return verified() && request.auth.token.get('moderator', false) == true;
+    }
+
+    function authorName() {
+      let name = request.auth.token.get('name', '');
+      return name is string && name.size() > 0 && name.size() <= 100
+        ? name : 'Member';
+    }
+
+    function text(value, minimum, maximum) {
+      return value is string && value.size() >= minimum && value.size() <= maximum;
+    }
+
+    function safeId(value) {
+      return text(value, 1, 128) && value.matches('[A-Za-z0-9_-]+');
+    }
+
+    function postPath(postId) {
+      return /databases/$(database)/documents/communityPosts/$(postId);
+    }
+
+    function commentPath(postId, commentId) {
+      return /databases/$(database)/documents/communityPosts/$(postId)/comments/$(commentId);
+    }
+
+    function published(postId) {
+      return exists(postPath(postId)) && get(postPath(postId)).data.status == 'published';
+    }
+
+    function canonicalTags(tags) {
+      return tags is list && tags.size() <= 15
+        && tags.toSet().size() == tags.size()
+        && tags.hasOnly([
+          'red', 'itchy', 'raised', 'cluster', 'line', 'painful', 'swollen',
+          'blister', 'scalp', 'lower-leg', 'tick', 'stinger', 'outdoors',
+          'improving', 'checked-with-clinician'
+        ]);
+    }
+
+    function validPost(postId) {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+          'authorId', 'author', 'location', 'createdAt', 'possibleMatch', 'body',
+          'guideId', 'tags', 'status', 'imagePath', 'likeCount', 'commentCount',
+          'lastCommentId'
+        ])
+        && data.keys().hasOnly([
+          'authorId', 'author', 'location', 'createdAt', 'possibleMatch', 'body',
+          'guideId', 'tags', 'status', 'imagePath', 'likeCount', 'commentCount',
+          'lastCommentId'
+        ])
+        && safeId(postId)
+        && data.authorId == request.auth.uid
+        && data.author == authorName()
+        && text(data.location, 0, 120)
+        && text(data.possibleMatch, 1, 100)
+        && text(data.body, 1, 4000)
+        && (data.guideId == null || safeId(data.guideId))
+        && canonicalTags(data.tags)
+        && data.createdAt == request.time
+        && data.status == 'published'
+        && (data.imagePath == null || data.imagePath ==
+          'communityPhotos/' + request.auth.uid + '/' + postId + '/photo.jpg')
+        && data.likeCount is int && data.likeCount == 0
+        && data.commentCount is int && data.commentCount == 0
+        && data.lastCommentId == null;
+    }
+
+    // A client may change one own like, never an arbitrary aggregate count.
+    function validLikeChange(postId) {
+      let data = request.resource.data;
+      let like = /databases/$(database)/documents/communityPosts/$(postId)/likes/$(request.auth.uid);
+      return data.diff(resource.data).affectedKeys().hasOnly(['likeCount'])
+        && data.likeCount is int && data.likeCount >= 0
+        && ((!exists(like) && existsAfter(like)
+              && getAfter(like).data.userId == request.auth.uid
+              && data.likeCount == resource.data.likeCount + 1)
+          || (exists(like) && !existsAfter(like)
+              && get(like).data.userId == request.auth.uid
+              && data.likeCount == resource.data.likeCount - 1));
+    }
+
+    // lastCommentId identifies the single child created/deleted in this commit.
+    // Both parent and child rules check the other side of the atomic write.
+    function validCommentChange(postId) {
+      let data = request.resource.data;
+      let comment = /databases/$(database)/documents/communityPosts/$(postId)/comments/$(data.lastCommentId);
+      return data.diff(resource.data).affectedKeys().hasOnly(['commentCount', 'lastCommentId'])
+        && safeId(data.lastCommentId)
+        && data.commentCount is int && data.commentCount >= 0
+        && ((!exists(comment) && existsAfter(comment)
+              && getAfter(comment).data.authorId == request.auth.uid
+              && data.commentCount == resource.data.commentCount + 1)
+          || (exists(comment) && !existsAfter(comment)
+              && (get(comment).data.authorId == request.auth.uid || moderator())
+              && data.commentCount == resource.data.commentCount - 1));
+    }
+
+    // Legacy top-level comments have no reply fields. A reply carries the
+    // complete, immutable identity of an existing comment in this same post.
+    function validReply(postId, data) {
+      return !data.keys().hasAny(['replyToCommentId', 'replyToAuthorId', 'replyToAuthor'])
+        || (data.keys().hasAll(['replyToCommentId', 'replyToAuthorId', 'replyToAuthor'])
+          && safeId(data.replyToCommentId)
+          && exists(commentPath(postId, data.replyToCommentId))
+          && data.replyToAuthorId == get(commentPath(postId, data.replyToCommentId)).data.authorId
+          && data.replyToAuthor == get(commentPath(postId, data.replyToCommentId)).data.author);
+    }
+
+    function notificationRecipient(postId, commentData) {
+      return commentData.get('replyToCommentId', null) == null
+        ? get(postPath(postId)).data.authorId
+        : get(commentPath(postId, commentData.replyToCommentId)).data.authorId;
+    }
+
+    // A sender cannot fabricate an inbox entry or replay an older comment.
+    // The notification and its new comment must be committed atomically.
+    function validNotification(recipientId, notificationId) {
+      let data = request.resource.data;
+      let source = commentPath(data.postId, data.commentId);
+      let commentData = getAfter(source).data;
+      return data.keys().hasAll([
+          'recipientId', 'actorId', 'actorName', 'postId', 'commentId',
+          'replyToCommentId', 'createdAt', 'isRead'
+        ])
+        && data.keys().hasOnly([
+          'recipientId', 'actorId', 'actorName', 'postId', 'commentId',
+          'replyToCommentId', 'createdAt', 'isRead'
+        ])
+        && safeId(data.postId) && safeId(data.commentId)
+        && notificationId == data.postId + '_' + data.commentId
+        && data.recipientId == recipientId
+        && recipientId != request.auth.uid
+        && data.actorId == request.auth.uid
+        && data.actorName == authorName()
+        && data.createdAt == request.time
+        && data.isRead == false
+        && published(data.postId)
+        && getAfter(postPath(data.postId)).data.status == 'published'
+        && !exists(source) && existsAfter(source)
+        && commentData.authorId == request.auth.uid
+        && commentData.author == authorName()
+        && commentData.createdAt == request.time
+        && data.replyToCommentId == commentData.get('replyToCommentId', null)
+        && recipientId == notificationRecipient(data.postId, commentData);
+    }
+
+    match /communityPosts/{postId} {
+      // A missing-document get permits safe idempotent publication preflights.
+      allow get: if verified() && (resource == null || resource.data.status == 'published'
+        || resource.data.authorId == request.auth.uid || moderator());
+      allow list: if verified() && resource.data.status == 'published';
+      allow create: if verified() && validPost(postId);
+      allow update: if verified() && resource.data.status == 'published'
+        && ((request.resource.data.status == 'published'
+            && (validLikeChange(postId) || validCommentChange(postId)))
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status == 'deleted'
+            && (resource.data.authorId == request.auth.uid || moderator())));
+      // Keep a tombstone so the old post/photo ID can never be reused.
+      allow delete: if false;
+
+      match /likes/{userId} {
+        allow read: if verified() && published(postId);
+        allow create: if verified() && request.auth.uid == userId && published(postId)
+          && request.resource.data.keys().hasAll(['userId', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['userId', 'createdAt'])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && getAfter(postPath(postId)).data.status == 'published'
+          && getAfter(postPath(postId)).data.likeCount == get(postPath(postId)).data.likeCount + 1;
+        allow delete: if verified() && request.auth.uid == userId && published(postId)
+          && resource.data.userId == request.auth.uid
+          && getAfter(postPath(postId)).data.status == 'published'
+          && getAfter(postPath(postId)).data.likeCount == get(postPath(postId)).data.likeCount - 1;
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if verified() && published(postId);
+        allow create: if verified() && published(postId) && safeId(commentId)
+          && request.resource.data.keys().hasAll(['authorId', 'author', 'body', 'createdAt'])
+          && request.resource.data.keys().hasOnly([
+            'authorId', 'author', 'body', 'createdAt',
+            'replyToCommentId', 'replyToAuthorId', 'replyToAuthor'
+          ])
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.author == authorName()
+          && text(request.resource.data.body, 1, 4000)
+          && request.resource.data.createdAt == request.time
+          && validReply(postId, request.resource.data)
+          && getAfter(postPath(postId)).data.status == 'published'
+          && getAfter(postPath(postId)).data.lastCommentId == commentId
+          && getAfter(postPath(postId)).data.commentCount == get(postPath(postId)).data.commentCount + 1;
+        allow delete: if verified() && published(postId)
+          && (resource.data.authorId == request.auth.uid || moderator())
+          && getAfter(postPath(postId)).data.status == 'published'
+          && getAfter(postPath(postId)).data.lastCommentId == commentId
+          && getAfter(postPath(postId)).data.commentCount == get(postPath(postId)).data.commentCount - 1;
+        allow update: if false;
+      }
+    }
+
+    match /communityNotifications/{recipientId}/items/{notificationId} {
+      allow read: if verified() && request.auth.uid == recipientId;
+      allow create: if verified() && validNotification(recipientId, notificationId);
+      allow update: if verified() && request.auth.uid == recipientId
+        && resource.data.isRead == false
+        && request.resource.data.isRead == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      // Keep the immutable event ID so a notification cannot be recreated.
+      allow delete: if false;
+    }
+
+    match /communityReports/{reportId} {
+      allow get: if verified() && (resource == null
+        || resource.data.reporterId == request.auth.uid || moderator());
+      allow list: if verified() && (resource.data.reporterId == request.auth.uid || moderator());
+      allow create: if verified()
+        && request.resource.data.keys().hasAll(['reporterId', 'postId', 'reason', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['reporterId', 'postId', 'reason', 'createdAt'])
+        && request.resource.data.reporterId == request.auth.uid
+        && safeId(request.resource.data.postId)
+        && reportId == request.auth.uid + '_' + request.resource.data.postId
+        && text(request.resource.data.reason, 1, 1000)
+        && request.resource.data.createdAt == request.time
+        && published(request.resource.data.postId);
+      allow update: if false;
+      allow delete: if moderator();
+    }
+
+    // Profile/history/saved data are not implicitly shared by community access.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

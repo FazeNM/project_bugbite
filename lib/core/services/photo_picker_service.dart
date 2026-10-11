@@ -1,20 +1,39 @@
-import 'dart:convert';
-import 'package:flutter/services.dart';
+import 'dart:typed_data';
 
-/// Dependency-free Android gallery bridge.
-///
-/// The Android implementation downscales the selected image before returning it,
-/// so sharing stays responsive and does not require a third-party plugin.
+import 'package:image_picker/image_picker.dart';
+
+/// Cross-platform photo picker for Android and Web.
 class PhotoPickerService {
   const PhotoPickerService();
 
-  static const MethodChannel _channel = MethodChannel(
-    'com.example.project_bugbite/photo_picker',
-  );
+  static final ImagePicker _picker = ImagePicker();
+  static const int _maximumStoredBytes = 5 * 1024 * 1024;
 
   Future<Uint8List?> pickFromLibrary() async {
-    final encodedImage = await _channel.invokeMethod<String>('pickImage');
-    if (encodedImage == null || encodedImage.isEmpty) return null;
-    return base64Decode(encodedImage);
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1280,
+      maxHeight: 1280,
+      imageQuality: 72,
+      requestFullMetadata: false,
+    );
+    if (image == null) return null;
+
+    final bytes = await image.readAsBytes();
+    if (bytes.length > _maximumStoredBytes) {
+      throw const PhotoSelectionException(
+        'Choose a photo smaller than 5 MB after compression.',
+      );
+    }
+    return bytes;
   }
+}
+
+class PhotoSelectionException implements Exception {
+  const PhotoSelectionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

@@ -1,25 +1,71 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../core/navigation/navigation_helpers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../data/models/bite_guide.dart';
 import '../../data/seed/seed_data.dart';
 import '../../state/app_controller.dart';
+import '../../state/profile_data_controller.dart';
+import 'widgets/guide_image.dart';
+import 'widgets/guide_step_tile.dart';
 
 class GuideDetailScreen extends ConsumerStatefulWidget {
-  const GuideDetailScreen({super.key, required this.guideId});
+  const GuideDetailScreen({
+    super.key,
+    required this.guideId,
+    this.initialPhoto = 0,
+  });
 
   final String guideId;
+  final int initialPhoto;
 
   @override
   ConsumerState<GuideDetailScreen> createState() => _GuideDetailScreenState();
 }
 
 class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
-  final PageController _pageController = PageController();
+  late PageController _pageController;
   int _selectedPage = 0;
+  bool _savingGuide = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPage = _initialPage();
+    _pageController = PageController(initialPage: _selectedPage);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _findGuide(widget.guideId) == null) return;
+      ref.read(profileDataProvider.notifier).recordGuideOpened(widget.guideId);
+    });
+  }
+
+  int _initialPage() {
+    final count = _findGuide(widget.guideId)?.gallery.length ?? 0;
+    return count == 0 ? 0 : widget.initialPhoto.clamp(0, count - 1);
+  }
+
+  @override
+  void didUpdateWidget(covariant GuideDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.guideId != widget.guideId ||
+        oldWidget.initialPhoto != widget.initialPhoto) {
+      _selectedPage = _initialPage();
+      final oldController = _pageController;
+      _pageController = PageController(initialPage: _selectedPage);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        oldController.dispose();
+        if (mounted &&
+            oldWidget.guideId != widget.guideId &&
+            _findGuide(widget.guideId) != null) {
+          ref
+              .read(profileDataProvider.notifier)
+              .recordGuideOpened(widget.guideId);
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -27,19 +73,77 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
     super.dispose();
   }
 
+  Future<void> _markReviewed(BiteGuide guide) async {
+    final succeeded = await ref
+        .read(profileDataProvider.notifier)
+        .markGuideCompleted(guide.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          succeeded
+              ? '${guide.title} marked as reviewed.'
+              : 'We could not update your bite history. Please try again.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleSaved(BiteGuide guide) async {
+    if (_savingGuide) return;
+    setState(() => _savingGuide = true);
+    final saved = await ref
+        .read(appControllerProvider.notifier)
+        .toggleSavedGuide(guide.id);
+    if (!mounted) return;
+    setState(() => _savingGuide = false);
+    if (!saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This saved-guide change could not be stored. Please try again.',
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final guide = guides.firstWhere((item) => item.id == widget.guideId);
+    final guide = _findGuide(widget.guideId);
+    if (guide == null) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            onPressed: () => popOrGo(context, '/explore'),
+          ),
+          title: const Text('Visual guide'),
+        ),
+        body: const SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: EmptyPanel(
+              icon: Icons.search_off_rounded,
+              title: 'Guide not found',
+              message:
+                  'This guide may have moved. Return to Explore to browse the current visual library.',
+            ),
+          ),
+        ),
+      );
+    }
     final saved = ref
         .watch(appControllerProvider)
         .savedGuideIds
         .contains(guide.id);
+    final gallery = guide.gallery;
 
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => context.pop(),
+          onPressed: () => popOrGo(context, '/explore'),
         ),
         title: const Text('Visual guide'),
         actions: <Widget>[
@@ -48,9 +152,7 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
             icon: Icon(
               saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
             ),
-            onPressed: () => ref
-                .read(appControllerProvider.notifier)
-                .toggleSavedGuide(guide.id),
+            onPressed: _savingGuide ? null : () => _toggleSaved(guide),
           ),
         ],
       ),
@@ -59,7 +161,14 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
           children: <Widget>[
-            const GuidePill(label: 'Possible match — compare carefully'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                GuidePill(label: guide.kind.label),
+                const GuidePill(label: 'Possible match — compare carefully'),
+              ],
+            ),
             const SizedBox(height: 12),
             Text(
               guide.title,
@@ -74,36 +183,28 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
             ),
             const SizedBox(height: 12),
             Text(guide.summary, style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(height: 8),
+            const Text(
+              'Real reference photos: insects, reported bite reactions, and relevant care or surroundings. Skin reactions vary; a visual match cannot confirm the cause.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
             const SizedBox(height: 18),
             SizedBox(
               height: 260,
               child: PageView(
                 controller: _pageController,
                 onPageChanged: (value) => setState(() => _selectedPage = value),
-                children: <Widget>[
-                  _GuideImage(
-                    asset: AppAssets.bugBitePairs,
-                    guide: guide,
-                    label: 'Example reaction',
-                  ),
-                  _GuideImage(
-                    asset: AppAssets.commonBites,
-                    guide: guide,
-                    label: 'Common visual patterns',
-                  ),
-                  _GuideImage(
-                    asset: AppAssets.careContexts,
-                    guide: guide,
-                    label: 'Care context',
-                  ),
-                ],
+                children: gallery
+                    .map((media) => GuideImage(media: media))
+                    .toList(growable: false),
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              runSpacing: 6,
               children: List<Widget>.generate(
-                3,
+                gallery.length,
                 (index) => AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -154,7 +255,7 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
             ...guide.recoverySteps.map(
               (step) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _StepTile(step: step),
+                child: GuideStepTile(step: step),
               ),
             ),
             SectionHeader(title: 'Keep an eye on'),
@@ -173,15 +274,19 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
             const SafetyNotice(),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: () => ref
-                  .read(appControllerProvider.notifier)
-                  .toggleSavedGuide(guide.id),
+              onPressed: _savingGuide ? null : () => _toggleSaved(guide),
               icon: Icon(
                 saved
                     ? Icons.bookmark_remove_outlined
                     : Icons.bookmark_add_outlined,
               ),
               label: Text(saved ? 'Saved to your profile' : 'Save this guide'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => _markReviewed(guide),
+              icon: const Icon(Icons.task_alt_rounded),
+              label: const Text('Mark guide as reviewed'),
             ),
           ],
         ),
@@ -190,78 +295,9 @@ class _GuideDetailScreenState extends ConsumerState<GuideDetailScreen> {
   }
 }
 
-class _GuideImage extends StatelessWidget {
-  const _GuideImage({
-    required this.asset,
-    required this.guide,
-    required this.label,
-  });
-
-  final String asset;
-  final BiteGuide guide;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final alignment = asset == AppAssets.careContexts
-        ? Alignment.center
-        : visualAlignment(guide.visual);
-    return AssetCrop(
-      asset: asset,
-      alignment: alignment,
-      borderRadius: BorderRadius.circular(24),
-      semanticLabel: '$label for ${guide.title}',
-      overlay: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.center,
-            colors: <Color>[Color(0x991E1513), Colors.transparent],
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(color: Colors.white),
-            ),
-          ),
-        ),
-      ),
-    );
+BiteGuide? _findGuide(String id) {
+  for (final guide in guides) {
+    if (guide.id == id) return guide;
   }
-}
-
-class _StepTile extends StatelessWidget {
-  const _StepTile({required this.step});
-
-  final String step;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppColors.border),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const Icon(
-          Icons.check_circle_outline_rounded,
-          size: 19,
-          color: AppColors.rose,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(step, style: Theme.of(context).textTheme.bodyMedium),
-        ),
-      ],
-    ),
-  );
+  return null;
 }

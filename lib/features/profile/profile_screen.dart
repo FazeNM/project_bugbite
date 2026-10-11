@@ -2,201 +2,96 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../data/seed/seed_data.dart';
 import '../../state/app_controller.dart';
+import '../../state/auth_controller.dart';
+import '../../state/profile_data_controller.dart';
+import 'widgets/profile_activity_section.dart';
+import 'widgets/profile_notifications_section.dart';
+import 'widgets/profile_preferences_section.dart';
+import 'widgets/profile_saved_guides_section.dart';
+import 'widgets/profile_shared_posts_section.dart';
+import 'widgets/profile_sign_out_button.dart';
+import 'widgets/profile_summary.dart';
 
-class ProfileScreen extends ConsumerStatefulWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  bool _notifications = true;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appControllerProvider);
-    final saved = guides
+    final authAction = ref.watch(authControllerProvider);
+    final profileData = ref.watch(profileDataProvider);
+    final savedGuides = guides
         .where((guide) => state.savedGuideIds.contains(guide.id))
         .toList(growable: false);
+    final privatePosts = state.posts
+        .where(
+          (post) =>
+              post.authorId == state.userId && post.publishedPostId == null,
+        )
+        .toList(growable: false);
 
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Your space',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-              ),
-              IconButton(
-                onPressed: () => _showSettingsSheet(context),
-                icon: const Icon(Icons.settings_outlined),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: <Color>[Color(0xFFF4D9D0), Color(0xFFE1AEB0)],
-              ),
-              borderRadius: BorderRadius.circular(24),
+    void openGuide(String guideId) => context.push('/guide/$guideId');
+    void openSettings() => context.push('/settings');
+
+    return profileData.when(
+      loading: () =>
+          const ProfileDataLoadingView(photoAsset: AppAssets.honeyBee),
+      error: (_, _) => ProfileDataErrorView(
+        onRetry: () => ref.read(profileDataProvider.notifier).reload(),
+      ),
+      data: (_) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+          children: <Widget>[
+            ProfilePageHeader(onOpenSettings: openSettings),
+            const SizedBox(height: 16),
+            ProfileIdentityCard(displayName: state.displayName),
+            const ProfileNotificationsSection(),
+            const SizedBox(height: 14),
+            Text(
+              '${savedGuides.length} saved guides · Private to this account',
+              style: Theme.of(context).textTheme.labelLarge,
             ),
-            child: Row(
-              children: <Widget>[
-                CircleAvatar(
-                  radius: 31,
-                  backgroundColor: Colors.white.withValues(alpha: .78),
-                  child: Text(
-                    state.displayName.substring(0, 1).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.rose,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        state.displayName,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 3),
-                      const Text('Learning carefully, one guide at a time.'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: <Widget>[
-              _MetricCard(value: '${saved.length}', label: 'Saved guides'),
-              const SizedBox(width: 10),
-              _MetricCard(
-                value:
-                    '${state.posts.where((post) => post.author == state.displayName).length}',
-                label: 'Shared notes',
+            if (state.persistenceError case final message?)
+              PersistenceWarningCard(
+                message: message,
+                onRetry: () =>
+                    ref.read(appControllerProvider.notifier).retryPersistence(),
               ),
-            ],
-          ),
-          SectionHeader(title: 'Saved visual guides'),
-          if (saved.isEmpty)
-            const EmptyPanel(
-              icon: Icons.bookmark_border_rounded,
-              title: 'Nothing saved yet',
-              message:
-                  'Save a visual guide while browsing and it will stay handy here.',
-            )
-          else
-            SizedBox(
-              height: 166,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: saved.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final guide = saved[index];
-                  return SizedBox(
-                    width: 142,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => context.push('/guide/${guide.id}'),
-                      child: Ink(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          children: <Widget>[
-                            Expanded(
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: AssetCrop(
-                                  asset: AppAssets.commonBites,
-                                  alignment: visualAlignment(guide.visual),
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(19),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(10),
-                              child: Text(
-                                guide.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+            ProfileSavedGuidesSection(
+              guides: savedGuides,
+              onOpenGuide: openGuide,
             ),
-          SectionHeader(title: 'Preferences'),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.border),
+            const ProfileSharedPostsSection(),
+            if (privatePosts.isNotEmpty)
+              LegacyPrivatePostsSection(posts: privatePosts),
+            ProfileActivitySection(
+              profileData: profileData,
+              onRetry: () => ref.read(profileDataProvider.notifier).reload(),
+              onOpenGuide: openGuide,
             ),
-            child: Column(
-              children: <Widget>[
-                SwitchListTile(
-                  value: _notifications,
-                  onChanged: (value) => setState(() => _notifications = value),
-                  title: const Text('Gentle reminders'),
-                  subtitle: const Text('Care and safety reminders only'),
-                  secondary: const Icon(Icons.notifications_none_rounded),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.privacy_tip_outlined),
-                  title: const Text('Privacy and photo controls'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _showPrivacySheet(context),
-                ),
-              ],
+            ProfilePreferencesSection(onOpenSettings: openSettings),
+            const SizedBox(height: 16),
+            ProfileSignOutButton(
+              isLoading: authAction.isLoading,
+              onPressed: () => _confirmSignOut(context, ref),
             ),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () => _confirmSignOut(context),
-            icon: const Icon(Icons.logout_rounded),
-            label: const Text('Sign out'),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  void _confirmSignOut(BuildContext context) {
-    showDialog<void>(
+  Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
+    final shouldSignOut = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Sign out of BiteWise?'),
         content: const Text(
-          'Local saved guides and community drafts are kept only for this session.',
+          'Your saved guides, history, settings, and private notes remain on this device for this account. Published community posts and comments remain online and visible to other signed-in members.',
         ),
         actions: <Widget>[
           TextButton(
@@ -204,101 +99,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: const Text('Stay signed in'),
           ),
           FilledButton(
-            onPressed: () {
-              ref.read(appControllerProvider.notifier).signOut();
-              Navigator.pop(dialogContext);
-              context.go('/sign-in');
-            },
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Sign out'),
           ),
         ],
       ),
     );
+
+    if (shouldSignOut != true || !context.mounted) return;
+    final authController = ref.read(authControllerProvider.notifier);
+    final appController = ref.read(appControllerProvider.notifier);
+    final didSignOut = await authController.signOut();
+
+    if (didSignOut) {
+      appController.signOut();
+      if (context.mounted) context.go('/sign-in');
+      return;
+    }
+
+    if (!context.mounted) return;
+    final message = ref.read(authControllerProvider).errorMessage;
+    if (message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
-
-  static void _showSettingsSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const Padding(
-        padding: EdgeInsets.fromLTRB(24, 4, 24, 30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              'Settings',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-            SizedBox(height: 12),
-            ListTile(
-              leading: Icon(Icons.language_rounded),
-              title: Text('Language'),
-              trailing: Text('English'),
-            ),
-            ListTile(
-              leading: Icon(Icons.accessibility_new_rounded),
-              title: Text('Accessibility'),
-              trailing: Icon(Icons.chevron_right_rounded),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static void _showPrivacySheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const Padding(
-        padding: EdgeInsets.fromLTRB(24, 4, 24, 30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              'Privacy first',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-            SizedBox(height: 12),
-            Text(
-              'Photos are attached only when you choose to share a post. A production backend should strip metadata and apply moderation before publishing.',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: <Widget>[
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(color: AppColors.rose),
-          ),
-          const SizedBox(height: 2),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
-    ),
-  );
 }

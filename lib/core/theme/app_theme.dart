@@ -6,7 +6,7 @@ abstract final class AppColors {
   static const apricot = Color(0xFFFFF2ED);
   static const canvas = Color(0xFFFFF9F6);
   static const ink = Color(0xFF3E3432);
-  static const muted = Color(0xFF927B75);
+  static const muted = Color(0xFF6F5D59);
   static const border = Color(0xFFECD9D2);
   static const safe = Color(0xFF5C8070);
 }

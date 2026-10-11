@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function postExists(postId) {
+      return firestore.exists(/databases/(default)/documents/communityPosts/$(postId));
+    }
+
+    function publishedPhoto(userId, postId) {
+      let post = firestore.get(/databases/(default)/documents/communityPosts/$(postId)).data;
+      return post.status == 'published' && post.authorId == userId
+        && post.imagePath == 'communityPhotos/' + userId + '/' + postId + '/photo.jpg';
+    }
+
+    match /communityPhotos/{userId}/{postId}/photo.jpg {
+      // Photos are staged privately before a post is published. The owner can
+      // inspect their own upload to safely retry publication/deletion cleanup.
+      // Other members cannot read orphan/deleted photos. The app uses
+      // authenticated bytes, not token URLs.
+      allow get: if verified() && (request.auth.uid == userId
+        || (postExists(postId) && publishedPhoto(userId, postId)));
+      allow list: if false;
+      allow create: if verified() && request.auth.uid == userId
+        && postId.matches('[A-Za-z0-9_-]{1,128}')
+        && !postExists(postId)
+        && request.resource.size > 0 && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      // Never replace a photo after it has been reviewed or published.
+      allow update: if false;
+      allow delete: if verified() && request.auth.uid == userId;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,6 +1,32 @@
 import 'package:flutter/material.dart';
 
-enum BiteVisual { mosquito, flea, bedbug, spider, tick }
+enum GuideKind { bite, sting, infestation }
+
+enum GuideMediaKind { insect, skin, care, exposure }
+
+extension GuideKindLabel on GuideKind {
+  String get label => switch (this) {
+    GuideKind.bite => 'Bite guide',
+    GuideKind.sting => 'Sting guide',
+    GuideKind.infestation => 'Infestation guide',
+  };
+}
+
+class GuideMedia {
+  const GuideMedia({
+    required this.asset,
+    required this.caption,
+    required this.semanticLabel,
+    this.fit = BoxFit.cover,
+    this.kind = GuideMediaKind.insect,
+  });
+
+  final String asset;
+  final String caption;
+  final String semanticLabel;
+  final BoxFit fit;
+  final GuideMediaKind kind;
+}
 
 class BiteGuide {
   const BiteGuide({
@@ -13,8 +39,10 @@ class BiteGuide {
     required this.watchFor,
     required this.filterTags,
     required this.category,
-    required this.visual,
+    required this.kind,
+    required this.gallery,
     required this.icon,
+    this.isFeatured = false,
   });
 
   final String id;
@@ -26,6 +54,14 @@ class BiteGuide {
   final String watchFor;
   final Set<String> filterTags;
   final String category;
-  final BiteVisual visual;
+  final GuideKind kind;
+  final List<GuideMedia> gallery;
   final IconData icon;
+  final bool isFeatured;
+
+  GuideMedia get thumbnail => gallery.first;
+
+  List<GuideMedia> get bitePhotos => List<GuideMedia>.unmodifiable(
+    gallery.where((media) => media.kind == GuideMediaKind.skin),
+  );
 }

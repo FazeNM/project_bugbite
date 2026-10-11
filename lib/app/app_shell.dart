@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class AppShell extends StatelessWidget {
+import '../core/widgets/app_widgets.dart';
+import '../state/app_controller.dart';
+import '../state/community_providers.dart';
+
+class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.location, required this.child});
 
   final String location;
@@ -38,23 +43,43 @@ class AppShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(child: child),
-    bottomNavigationBar: NavigationBar(
-      selectedIndex: _selectedIndex,
-      onDestinationSelected: (index) =>
-          context.go(_destinations[index].location),
-      destinations: _destinations
-          .map(
-            (item) => NavigationDestination(
-              icon: Icon(item.icon),
-              selectedIcon: Icon(item.selectedIcon),
-              label: item.label,
-            ),
-          )
-          .toList(growable: false),
-    ),
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appState = ref.watch(appControllerProvider);
+    if (appState.isHydrating) {
+      return const Scaffold(
+        body: ProfileDataLoadingView(photoAsset: AppAssets.honeyBee),
+      );
+    }
+
+    final unread =
+        ref.watch(communityUnreadNotificationCountProvider).asData?.value ?? 0;
+    Widget destinationIcon(_ShellDestination item, IconData icon) {
+      if (item.location != '/profile' || unread == 0) return Icon(icon);
+      return Badge(
+        key: ValueKey('profile-notification-badge-${icon.codePoint}'),
+        label: Text(unread >= 100 ? '99+' : '$unread'),
+        child: Icon(icon),
+      );
+    }
+
+    return Scaffold(
+      body: SafeArea(child: child),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) =>
+            context.go(_destinations[index].location),
+        destinations: _destinations
+            .map(
+              (item) => NavigationDestination(
+                icon: destinationIcon(item, item.icon),
+                selectedIcon: destinationIcon(item, item.selectedIcon),
+                label: item.label,
+              ),
+            )
+            .toList(growable: false),
+      ),
+    );
+  }
 }
 
 class _ShellDestination {

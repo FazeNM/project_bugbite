@@ -1,74 +1,55 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
-import '../features/auth/auth_screens.dart';
-import '../features/community/add_bite_screen.dart';
-import '../features/community/community_screen.dart';
-import '../features/explore/explore_screen.dart';
-import '../features/explore/guide_detail_screen.dart';
-import '../features/find/find_screen.dart';
-import '../features/home/home_screen.dart';
-import '../features/profile/profile_screen.dart';
-import 'app_shell.dart';
+import '../data/services/auth_service.dart';
+import '../state/app_controller.dart';
+import '../state/auth_controller.dart';
+import '../state/profile_data_controller.dart';
+import 'app_router.dart';
 
-GoRouter _createRouter() => GoRouter(
-  initialLocation: '/sign-in',
-  routes: <RouteBase>[
-    GoRoute(
-      path: '/sign-in',
-      builder: (context, state) => const SignInScreen(),
-    ),
-    GoRoute(
-      path: '/sign-up',
-      builder: (context, state) => const SignUpScreen(),
-    ),
-    ShellRoute(
-      builder: (context, state, child) =>
-          AppShell(location: state.uri.path, child: child),
-      routes: <RouteBase>[
-        GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
-        GoRoute(
-          path: '/explore',
-          builder: (context, state) => const ExploreScreen(),
-        ),
-        GoRoute(path: '/find', builder: (context, state) => const FindScreen()),
-        GoRoute(
-          path: '/community',
-          builder: (context, state) => const CommunityScreen(),
-        ),
-        GoRoute(
-          path: '/profile',
-          builder: (context, state) => const ProfileScreen(),
-        ),
-      ],
-    ),
-    GoRoute(
-      path: '/guide/:guideId',
-      builder: (context, state) =>
-          GuideDetailScreen(guideId: state.pathParameters['guideId']!),
-    ),
-    GoRoute(
-      path: '/add-bite',
-      builder: (context, state) => const AddBiteScreen(),
-    ),
-  ],
-);
-
-class BiteWiseApp extends StatefulWidget {
+class BiteWiseApp extends ConsumerStatefulWidget {
   const BiteWiseApp({super.key});
 
   @override
-  State<BiteWiseApp> createState() => _BiteWiseAppState();
+  ConsumerState<BiteWiseApp> createState() => _BiteWiseAppState();
 }
 
-class _BiteWiseAppState extends State<BiteWiseApp> {
-  late final GoRouter _router;
+class _BiteWiseAppState extends ConsumerState<BiteWiseApp> {
+  late final ProviderSubscription<AuthUser?> _authSubscription;
+  String? _activeUserId;
 
   @override
   void initState() {
     super.initState();
-    _router = _createRouter();
+    _authSubscription = ref.listenManual<AuthUser?>(currentUserProvider, (
+      _,
+      user,
+    ) {
+      Future<void>.microtask(() async {
+        if (!mounted) return;
+        final accountChanged = _activeUserId != user?.id;
+        _activeUserId = user?.id;
+        if (accountChanged) ref.invalidate(profileDataProvider);
+
+        final appController = ref.read(appControllerProvider.notifier);
+        if (user == null) {
+          appController.signOut();
+        } else {
+          await appController.syncAuthenticatedUser(
+            userId: user.id,
+            displayName: user.displayName,
+            email: user.email,
+          );
+        }
+      });
+    }, fireImmediately: true);
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.close();
+    super.dispose();
   }
 
   @override
@@ -76,6 +57,6 @@ class _BiteWiseAppState extends State<BiteWiseApp> {
     title: 'BiteWise',
     debugShowCheckedModeBanner: false,
     theme: BiteWiseTheme.light(),
-    routerConfig: _router,
+    routerConfig: ref.watch(appRouterProvider),
   );
 }

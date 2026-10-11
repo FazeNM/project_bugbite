@@ -32,6 +32,9 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+**/node_modules/
+.firebase/
+*-debug.log
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +46,26 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android release credentials (keep local; use key.properties.example as a guide)
+/android/key.properties
+*.jks
+*.keystore
+
+# Local secrets (Firebase client configuration is intentionally versioned)
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.p8
+*.p12
+*firebase-adminsdk*.json
+service-account*.json
+*service_account*.json
+
+# Retired AI prototype artwork; not part of the app or reference-photo library
+/assets/images/bite_care_contexts.png
+/assets/images/bug_bite_example_pairs.png
+/assets/images/common_bites_contact_sheet.png
+/assets/images/illustrations/profile_loading.png
